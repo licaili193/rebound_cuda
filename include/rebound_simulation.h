@@ -7,13 +7,13 @@
 // REBOUND CUDA simulation class
 class ReboundCudaSimulation {
 private:
-    SimulationConfig config;
-    Particle* h_particles;      // Host particles
-    Particle* d_particles;      // Device particles
-    OctTree oct_tree;           // Tree for Barnes-Hut algorithm
-    bool particles_allocated;
-    bool device_particles_current; // Flag to track if device particles are up to date
-    int particle_count;         // Current number of particles added
+    SimulationConfig config_;
+    Particle* h_particles_;      // Host particles
+    Particle* d_particles_;      // Device particles
+    OctTree oct_tree_;           // Tree for Barnes-Hut algorithm
+    bool particles_allocated_;
+    bool device_particles_current_; // Flag to track if device particles are up to date
+    int particle_count_;         // Current number of particles added
     
 public:
     ReboundCudaSimulation();
@@ -44,10 +44,10 @@ public:
     double getTotalEnergy();
     
     // Getter functions
-    int getNumParticles() const { return config.n_particles; }
-    double getCurrentTime() const { return config.t; }
-    const Particle* getParticles() const { return h_particles; }
-    GravityMode getGravityMode() const { return config.gravity_mode; }
+    int getNumParticles() const { return config_.n_particles; }
+    double getCurrentTime() const { return config_.t; }
+    const Particle* getParticles() const { return h_particles_; }
+    GravityMode getGravityMode() const { return config_.gravity_mode; }
 };
 
 #endif // REBOUND_SIMULATION_H 

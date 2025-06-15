@@ -7,11 +7,11 @@
 // OctTree class for Barnes-Hut algorithm
 class OctTree {
 private:
-    TreeNode* h_tree_nodes;     // Host tree nodes
-    TreeNode* d_tree_nodes;     // Device tree nodes
-    bool tree_allocated;
-    int max_tree_nodes;
-    int max_tree_depth;
+    TreeNode* h_tree_nodes_;     // Host tree nodes
+    TreeNode* d_tree_nodes_;     // Device tree nodes
+    bool tree_allocated_;
+    int max_tree_nodes_;
+    int max_tree_depth_;
 
     // Private utility methods
     int getChildIndex(double px, double py, double pz, double cx, double cy, double cz);
@@ -34,10 +34,10 @@ public:
     void cleanup();
 
     // Getters
-    TreeNode* getDeviceNodes() const { return d_tree_nodes; }
-    TreeNode* getHostNodes() const { return h_tree_nodes; }
-    bool isAllocated() const { return tree_allocated; }
-    int getMaxNodes() const { return max_tree_nodes; }
+    TreeNode* getDeviceNodes() const { return d_tree_nodes_; }
+    TreeNode* getHostNodes() const { return h_tree_nodes_; }
+    bool isAllocated() const { return tree_allocated_; }
+    int getMaxNodes() const { return max_tree_nodes_; }
 };
 
 #endif // REBOUND_TREE_H 

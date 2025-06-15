@@ -9,91 +9,91 @@
 
 // ReboundCudaSimulation class implementation
 ReboundCudaSimulation::ReboundCudaSimulation() {
-    h_particles = nullptr;
-    d_particles = nullptr;
-    particles_allocated = false;
-    device_particles_current = false;  // Initially device particles are not current
-    particle_count = 0;
+    h_particles_ = nullptr;
+    d_particles_ = nullptr;
+    particles_allocated_ = false;
+    device_particles_current_ = false;  // Initially device particles are not current
+    particle_count_ = 0;
     
     // Initialize configuration with default values
-    config.n_particles = 0;
-    config.t = 0.0;
-    config.dt = 0.01;
-    config.G = 1.0;
-    config.gravity_mode = GRAVITY_BASIC;
-    config.softening = 0.0;
-    config.opening_angle = 0.5;
-    config.max_iterations = 1000000;
-    config.max_tree_depth = 20;
-    config.collision_detection = false;
+    config_.n_particles = 0;
+    config_.t = 0.0;
+    config_.dt = 0.01;
+    config_.G = 1.0;
+    config_.gravity_mode = GRAVITY_BASIC;
+    config_.softening = 0.0;
+    config_.opening_angle = 0.5;
+    config_.max_iterations = 1000000;
+    config_.max_tree_depth = 20;
+    config_.collision_detection = false;
 }
 
 ReboundCudaSimulation::~ReboundCudaSimulation() {
     // Free host memory
-    if (h_particles) {
-        free(h_particles);
-        h_particles = nullptr;
+    if (h_particles_) {
+        free(h_particles_);
+        h_particles_ = nullptr;
     }
     
     // Free device memory
-    if (d_particles) {
-        cudaFree(d_particles);
-        d_particles = nullptr;
+    if (d_particles_) {
+        cudaFree(d_particles_);
+        d_particles_ = nullptr;
     }
     
-    particles_allocated = false;
+    particles_allocated_ = false;
 }
 
 void ReboundCudaSimulation::initializeSimulation(int n_particles, double dt, double G) {
     // Clean up previous allocation if any
-    if (h_particles) {
-        free(h_particles);
-        h_particles = nullptr;
+    if (h_particles_) {
+        free(h_particles_);
+        h_particles_ = nullptr;
     }
-    if (d_particles) {
-        cudaFree(d_particles);
-        d_particles = nullptr;
+    if (d_particles_) {
+        cudaFree(d_particles_);
+        d_particles_ = nullptr;
     }
     
-    config.n_particles = n_particles;
-    config.dt = dt;
-    config.G = G;
-    config.t = 0.0;
+    config_.n_particles = n_particles;
+    config_.dt = dt;
+    config_.G = G;
+    config_.t = 0.0;
     
     // Reset particle counter for new simulation
-    particle_count = 0;
+    particle_count_ = 0;
     
     // Allocate host memory for particles
-    h_particles = (Particle*)malloc(n_particles * sizeof(Particle));
-    if (!h_particles) {
+    h_particles_ = (Particle*)malloc(n_particles * sizeof(Particle));
+    if (!h_particles_) {
         std::cerr << "Failed to allocate host memory for particles" << std::endl;
         exit(EXIT_FAILURE);
     }
     
-    memset(h_particles, 0, n_particles * sizeof(Particle));
+    memset(h_particles_, 0, n_particles * sizeof(Particle));
     
     // Allocate device memory for particles
-    cudaError_t err = cudaMalloc((void**)&d_particles, n_particles * sizeof(Particle));
+    cudaError_t err = cudaMalloc((void**)&d_particles_, n_particles * sizeof(Particle));
     checkCudaError(err, "Failed to allocate device memory for particles");
     
-    particles_allocated = true;
+    particles_allocated_ = true;
 }
 
 void ReboundCudaSimulation::addParticle(double m, double x, double y, double z, 
                                        double vx, double vy, double vz, double r) {
-    std::cout << "DEBUG: Adding particle " << particle_count << " with mass=" << m << ", pos=(" << x << ", " << y << ", " << z << ")" << std::endl;
+    std::cout << "DEBUG: Adding particle " << particle_count_ << " with mass=" << m << ", pos=(" << x << ", " << y << ", " << z << ")" << std::endl;
     
-    if (particle_count >= config.n_particles) {
-        std::cerr << "Error: Cannot add more particles than allocated (" << config.n_particles << ")" << std::endl;
+    if (particle_count_ >= config_.n_particles) {
+        std::cerr << "Error: Cannot add more particles than allocated (" << config_.n_particles << ")" << std::endl;
         return;
     }
     
-    if (!h_particles) {
+    if (!h_particles_) {
         std::cerr << "Error: Particles not allocated. Call initializeSimulation first." << std::endl;
         return;
     }
     
-    Particle& p = h_particles[particle_count];
+    Particle& p = h_particles_[particle_count_];
     p.m = m;
     p.x = x; p.y = y; p.z = z;
     p.vx = vx; p.vy = vy; p.vz = vz;
@@ -102,55 +102,55 @@ void ReboundCudaSimulation::addParticle(double m, double x, double y, double z,
     
     std::cout << "DEBUG: After setting values: mass=" << p.m << ", pos=(" << p.x << ", " << p.y << ", " << p.z << ")" << std::endl;
     
-    particle_count++;
-    device_particles_current = false;  // Device is no longer current after adding particles
-    std::cout << "DEBUG: particle_count now = " << particle_count << std::endl;
+    particle_count_++;
+    device_particles_current_ = false;  // Device is no longer current after adding particles
+    std::cout << "DEBUG: particle_count now = " << particle_count_ << std::endl;
 }
 
 void ReboundCudaSimulation::setGravityMode(GravityMode mode) {
-    config.gravity_mode = mode;
+    config_.gravity_mode = mode;
 }
 
 void ReboundCudaSimulation::setTreeParameters(double opening_angle, double softening) {
-    config.opening_angle = opening_angle;
-    config.softening = softening;
+    config_.opening_angle = opening_angle;
+    config_.softening = softening;
 }
 
 void ReboundCudaSimulation::copyParticlesToDevice() {
-    if (!particles_allocated) return;
+    if (!particles_allocated_) return;
     
-    std::cout << "DEBUG: Copying " << particle_count << " particles to device (config.n_particles=" << config.n_particles << ")" << std::endl;
+    std::cout << "DEBUG: Copying " << particle_count_ << " particles to device (config.n_particles=" << config_.n_particles << ")" << std::endl;
     
-    cudaError_t err = cudaMemcpy(d_particles, h_particles, 
-                                particle_count * sizeof(Particle), cudaMemcpyHostToDevice);
+    cudaError_t err = cudaMemcpy(d_particles_, h_particles_, 
+                                particle_count_ * sizeof(Particle), cudaMemcpyHostToDevice);
     checkCudaError(err, "Failed to copy particles to device");
     
-    device_particles_current = true;  // Device is now current
+    device_particles_current_ = true;  // Device is now current
 }
 
 void ReboundCudaSimulation::copyParticlesFromDevice() {
-    if (!particles_allocated || !device_particles_current) return;
+    if (!particles_allocated_ || !device_particles_current_) return;
     
-    std::cout << "DEBUG: Copying " << particle_count << " particles from device (config.n_particles=" << config.n_particles << ")" << std::endl;
+    std::cout << "DEBUG: Copying " << particle_count_ << " particles from device (config.n_particles=" << config_.n_particles << ")" << std::endl;
     
-    cudaError_t err = cudaMemcpy(h_particles, d_particles, 
-                                particle_count * sizeof(Particle), cudaMemcpyDeviceToHost);
+    cudaError_t err = cudaMemcpy(h_particles_, d_particles_, 
+                                particle_count_ * sizeof(Particle), cudaMemcpyDeviceToHost);
     checkCudaError(err, "Failed to copy particles from device");
 }
 
 void ReboundCudaSimulation::computeForces() {
-    if (particle_count == 0) return;
+    if (particle_count_ == 0) return;
     
     // Set up kernel launch parameters
     int threadsPerBlock = 256;
-    int blocksPerGrid = (particle_count + threadsPerBlock - 1) / threadsPerBlock;
+    int blocksPerGrid = (particle_count_ + threadsPerBlock - 1) / threadsPerBlock;
     
-    switch (config.gravity_mode) {
+    switch (config_.gravity_mode) {
         case GRAVITY_NONE:
             // No gravity calculation - just zero out accelerations
             {
                 int threadsPerBlock = 256;
-                int blocksPerGrid = (particle_count + threadsPerBlock - 1) / threadsPerBlock;
+                int blocksPerGrid = (particle_count_ + threadsPerBlock - 1) / threadsPerBlock;
                 
                 // Zero out only acceleration components, not the entire particle
                 dim3 block(threadsPerBlock);
@@ -163,20 +163,20 @@ void ReboundCudaSimulation::computeForces() {
             
         case GRAVITY_BASIC:
             computeForcesBasicKernel<<<blocksPerGrid, threadsPerBlock>>>(
-                d_particles, particle_count, config.G, config.softening);
+                d_particles_, particle_count_, config_.G, config_.softening);
             break;
             
         case GRAVITY_COMPENSATED:
             computeForcesCompensatedKernel<<<blocksPerGrid, threadsPerBlock>>>(
-                d_particles, particle_count, config.G, config.softening);
+                d_particles_, particle_count_, config_.G, config_.softening);
             break;
             
         case GRAVITY_TREE:
             // Build tree before computing forces
             buildTree();
             computeForcesTreeKernel<<<blocksPerGrid, threadsPerBlock>>>(
-                d_particles, oct_tree.getDeviceNodes(), particle_count, 
-                config.G, config.opening_angle, config.softening);
+                d_particles_, oct_tree_.getDeviceNodes(), particle_count_, 
+                config_.G, config_.opening_angle, config_.softening);
             break;
     }
     
@@ -190,13 +190,13 @@ void ReboundCudaSimulation::computeForces() {
 }
 
 void ReboundCudaSimulation::updatePositions() {
-    if (particle_count == 0) return;
+    if (particle_count_ == 0) return;
     
     int threadsPerBlock = 256;
-    int blocksPerGrid = (particle_count + threadsPerBlock - 1) / threadsPerBlock;
+    int blocksPerGrid = (particle_count_ + threadsPerBlock - 1) / threadsPerBlock;
     
     updatePositionsKernel<<<blocksPerGrid, threadsPerBlock>>>(
-        d_particles, particle_count, config.dt);
+        d_particles_, particle_count_, config_.dt);
     
     cudaError_t err = cudaGetLastError();
     checkCudaError(err, "Kernel execution failed in updatePositions");
@@ -210,10 +210,10 @@ void ReboundCudaSimulation::step() {
     
     // 1. Update velocities by half step (kick)
     int threadsPerBlock = 256;
-    int blocksPerGrid = (particle_count + threadsPerBlock - 1) / threadsPerBlock;
+    int blocksPerGrid = (particle_count_ + threadsPerBlock - 1) / threadsPerBlock;
     
     updateVelocitiesKernel<<<blocksPerGrid, threadsPerBlock>>>(
-        d_particles, particle_count, config.dt * 0.5);
+        d_particles_, particle_count_, config_.dt * 0.5);
     
     // 2. Update positions by full step (drift)
     updatePositions();
@@ -223,10 +223,10 @@ void ReboundCudaSimulation::step() {
     
     // 4. Update velocities by half step (kick)
     updateVelocitiesKernel<<<blocksPerGrid, threadsPerBlock>>>(
-        d_particles, particle_count, config.dt * 0.5);
+        d_particles_, particle_count_, config_.dt * 0.5);
     
     // Update simulation time
-    config.t += config.dt;
+    config_.t += config_.dt;
     
     // Synchronize to ensure all operations are complete
     cudaError_t err = cudaDeviceSynchronize();
@@ -238,8 +238,8 @@ void ReboundCudaSimulation::integrate(double t_end) {
     
     // Debug: Check particles before copying to device
     std::cout << "DEBUG: Particles before copying to device:" << std::endl;
-    for (int i = 0; i < particle_count; i++) {
-        Particle& p = h_particles[i];
+    for (int i = 0; i < particle_count_; i++) {
+        Particle& p = h_particles_[i];
         std::cout << "  Particle " << i << ": mass=" << p.m << ", pos=(" << p.x << ", " << p.y << ", " << p.z << ")" << std::endl;
     }
     
@@ -249,8 +249,8 @@ void ReboundCudaSimulation::integrate(double t_end) {
     // Debug: Copy back immediately to check if copy worked
     copyParticlesFromDevice();
     std::cout << "DEBUG: Particles after round-trip copy:" << std::endl;
-    for (int i = 0; i < particle_count; i++) {
-        Particle& p = h_particles[i];
+    for (int i = 0; i < particle_count_; i++) {
+        Particle& p = h_particles_[i];
         std::cout << "  Particle " << i << ": mass=" << p.m << ", pos=(" << p.x << ", " << p.y << ", " << p.z << ")" << std::endl;
     }
     
@@ -263,8 +263,8 @@ void ReboundCudaSimulation::integrate(double t_end) {
     // Debug: Check after force calculation
     copyParticlesFromDevice();
     std::cout << "DEBUG: Particles after force calculation:" << std::endl;
-    for (int i = 0; i < particle_count; i++) {
-        Particle& p = h_particles[i];
+    for (int i = 0; i < particle_count_; i++) {
+        Particle& p = h_particles_[i];
         std::cout << "  Particle " << i << ": mass=" << p.m << ", pos=(" << p.x << ", " << p.y << ", " << p.z << "), acc=(" << p.ax << ", " << p.ay << ", " << p.az << ")" << std::endl;
     }
     
@@ -272,13 +272,13 @@ void ReboundCudaSimulation::integrate(double t_end) {
     copyParticlesToDevice();
     
     int steps = 0;
-    while (config.t < t_end && steps < config.max_iterations) {
+    while (config_.t < t_end && steps < config_.max_iterations) {
         step();
         steps++;
         
         // Optional: print progress every 1000 steps
         if (steps % 1000 == 0) {
-            std::cout << "Step " << steps << ", t = " << config.t << std::endl;
+            std::cout << "Step " << steps << ", t = " << config_.t << std::endl;
         }
         
         // Early exit for debugging
@@ -292,13 +292,13 @@ void ReboundCudaSimulation::integrate(double t_end) {
 void ReboundCudaSimulation::printParticles() {
     // If device particles are current (simulation has run), copy from device
     // Otherwise use host particles directly
-    if (device_particles_current) {
+    if (device_particles_current_) {
         copyParticlesFromDevice();
     }
     
     std::cout << "\n=== Particle States ===" << std::endl;
-    for (int i = 0; i < particle_count; i++) {
-        Particle& p = h_particles[i];
+    for (int i = 0; i < particle_count_; i++) {
+        Particle& p = h_particles_[i];
         std::cout << "Particle " << i << ": ";
         std::cout << "pos=(" << p.x << ", " << p.y << ", " << p.z << ") ";
         std::cout << "vel=(" << p.vx << ", " << p.vy << ", " << p.vz << ") ";
@@ -309,7 +309,7 @@ void ReboundCudaSimulation::printParticles() {
 double ReboundCudaSimulation::getTotalEnergy() {
     // If device particles are current (simulation has run), copy from device
     // Otherwise use host particles directly
-    if (device_particles_current) {
+    if (device_particles_current_) {
         copyParticlesFromDevice();
     }
     
@@ -317,17 +317,17 @@ double ReboundCudaSimulation::getTotalEnergy() {
     double potential = 0.0;
     
     // Calculate kinetic energy
-    for (int i = 0; i < particle_count; i++) {
-        Particle& p = h_particles[i];
+    for (int i = 0; i < particle_count_; i++) {
+        Particle& p = h_particles_[i];
         double v2 = p.vx*p.vx + p.vy*p.vy + p.vz*p.vz;
         kinetic += 0.5 * p.m * v2;
     }
     
     // Calculate potential energy
-    for (int i = 0; i < particle_count; i++) {
-        for (int j = i + 1; j < particle_count; j++) {
-            Particle& pi = h_particles[i];
-            Particle& pj = h_particles[j];
+    for (int i = 0; i < particle_count_; i++) {
+        for (int j = i + 1; j < particle_count_; j++) {
+            Particle& pi = h_particles_[i];
+            Particle& pj = h_particles_[j];
             
             double dx = pj.x - pi.x;
             double dy = pj.y - pi.y;
@@ -335,7 +335,7 @@ double ReboundCudaSimulation::getTotalEnergy() {
             double r = sqrt(dx*dx + dy*dy + dz*dz);
             
             if (r > 1e-15) {
-                potential -= config.G * pi.m * pj.m / r;
+                potential -= config_.G * pi.m * pj.m / r;
             }
         }
     }
@@ -348,8 +348,8 @@ void ReboundCudaSimulation::buildTree() {
     copyParticlesFromDevice();
     
     // Build tree using the OctTree class
-    oct_tree.buildTree(h_particles, particle_count);
+    oct_tree_.buildTree(h_particles_, particle_count_);
     
     // Copy tree to device for GPU kernels
-    oct_tree.copyToDevice();
+    oct_tree_.copyToDevice();
 } 

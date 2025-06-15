@@ -9,11 +9,11 @@
 // OctTree class implementation
 
 OctTree::OctTree(int max_depth) {
-    h_tree_nodes = nullptr;
-    d_tree_nodes = nullptr;
-    tree_allocated = false;
-    max_tree_nodes = 0;
-    max_tree_depth = max_depth;
+    h_tree_nodes_ = nullptr;
+    d_tree_nodes_ = nullptr;
+    tree_allocated_ = false;
+    max_tree_nodes_ = 0;
+    max_tree_depth_ = max_depth;
 }
 
 OctTree::~OctTree() {
@@ -22,19 +22,19 @@ OctTree::~OctTree() {
 
 void OctTree::cleanup() {
     // Free host memory
-    if (h_tree_nodes) {
-        free(h_tree_nodes);
-        h_tree_nodes = nullptr;
+    if (h_tree_nodes_) {
+        free(h_tree_nodes_);
+        h_tree_nodes_ = nullptr;
     }
     
     // Free device memory
-    if (d_tree_nodes) {
-        cudaFree(d_tree_nodes);
-        d_tree_nodes = nullptr;
+    if (d_tree_nodes_) {
+        cudaFree(d_tree_nodes_);
+        d_tree_nodes_ = nullptr;
     }
     
-    tree_allocated = false;
-    max_tree_nodes = 0;
+    tree_allocated_ = false;
+    max_tree_nodes_ = 0;
 }
 
 void OctTree::findBoundingBox(Particle* particles, int n_particles,
@@ -63,39 +63,39 @@ void OctTree::findBoundingBox(Particle* particles, int n_particles,
 }
 
 void OctTree::allocateMemory(int n_particles) {
-    if (tree_allocated) {
+    if (tree_allocated_) {
         cleanup();  // Clean up previous allocation
     }
     
     // Estimate maximum number of tree nodes (conservative upper bound)
-    max_tree_nodes = 8 * n_particles;  // Oct-tree can have at most 8*N nodes
+    max_tree_nodes_ = 8 * n_particles;  // Oct-tree can have at most 8*N nodes
     
     // Allocate host memory for tree nodes
-    h_tree_nodes = (TreeNode*)malloc(max_tree_nodes * sizeof(TreeNode));
-    if (!h_tree_nodes) {
+    h_tree_nodes_ = (TreeNode*)malloc(max_tree_nodes_ * sizeof(TreeNode));
+    if (!h_tree_nodes_) {
         std::cerr << "Failed to allocate host memory for tree nodes" << std::endl;
         exit(EXIT_FAILURE);
     }
     
-    memset(h_tree_nodes, 0, max_tree_nodes * sizeof(TreeNode));
+    memset(h_tree_nodes_, 0, max_tree_nodes_ * sizeof(TreeNode));
     
     // Initialize all nodes
-    for (int i = 0; i < max_tree_nodes; i++) {
+    for (int i = 0; i < max_tree_nodes_; i++) {
         for (int j = 0; j < 8; j++) {
-            h_tree_nodes[i].children[j] = -1;
+            h_tree_nodes_[i].children[j] = -1;
         }
-        h_tree_nodes[i].particle_index = -1;
-        h_tree_nodes[i].parent = -1;
-        h_tree_nodes[i].is_leaf = true;
-        h_tree_nodes[i].total_mass = 0.0;
-        h_tree_nodes[i].depth = 0;
+        h_tree_nodes_[i].particle_index = -1;
+        h_tree_nodes_[i].parent = -1;
+        h_tree_nodes_[i].is_leaf = true;
+        h_tree_nodes_[i].total_mass = 0.0;
+        h_tree_nodes_[i].depth = 0;
     }
     
     // Allocate device memory for tree nodes
-    cudaError_t err = cudaMalloc((void**)&d_tree_nodes, max_tree_nodes * sizeof(TreeNode));
+    cudaError_t err = cudaMalloc((void**)&d_tree_nodes_, max_tree_nodes_ * sizeof(TreeNode));
     checkCudaError(err, "Failed to allocate device memory for tree nodes");
     
-    tree_allocated = true;
+    tree_allocated_ = true;
 }
 
 int OctTree::getChildIndex(double px, double py, double pz, 
@@ -112,7 +112,7 @@ int OctTree::buildTreeRecursive(TreeNode* nodes, Particle* particles, int* parti
                                double x_min, double x_max, double y_min, double y_max,
                                double z_min, double z_max, int depth, int max_depth) {
     
-    if (depth > max_depth || next_free_node >= max_tree_nodes) {
+    if (depth > max_depth || next_free_node >= max_tree_nodes_) {
         return -1;  // Tree too deep or out of memory
     }
     
@@ -179,7 +179,7 @@ int OctTree::buildTreeRecursive(TreeNode* nodes, Particle* particles, int* parti
     // Create child nodes for non-empty octants
     for (int oct = 0; oct < 8; oct++) {
         if (octant_counts[oct] > 0) {
-            if (next_free_node >= max_tree_nodes) break;
+            if (next_free_node >= max_tree_nodes_) break;
             
             int child_index = next_free_node++;
             node.children[oct] = child_index;
@@ -213,7 +213,7 @@ int OctTree::buildTreeRecursive(TreeNode* nodes, Particle* particles, int* parti
 }
 
 void OctTree::buildTree(Particle* particles, int n_particles) {
-    if (!tree_allocated) {
+    if (!tree_allocated_) {
         allocateMemory(n_particles);
     }
     
@@ -230,30 +230,30 @@ void OctTree::buildTree(Particle* particles, int n_particles) {
     }
     
     // Reset tree nodes
-    memset(h_tree_nodes, 0, max_tree_nodes * sizeof(TreeNode));
-    for (int i = 0; i < max_tree_nodes; i++) {
+    memset(h_tree_nodes_, 0, max_tree_nodes_ * sizeof(TreeNode));
+    for (int i = 0; i < max_tree_nodes_; i++) {
         for (int j = 0; j < 8; j++) {
-            h_tree_nodes[i].children[j] = -1;
+            h_tree_nodes_[i].children[j] = -1;
         }
-        h_tree_nodes[i].particle_index = -1;
-        h_tree_nodes[i].parent = -1;
-        h_tree_nodes[i].is_leaf = true;
-        h_tree_nodes[i].total_mass = 0.0;
+        h_tree_nodes_[i].particle_index = -1;
+        h_tree_nodes_[i].parent = -1;
+        h_tree_nodes_[i].is_leaf = true;
+        h_tree_nodes_[i].total_mass = 0.0;
     }
     
     // Build tree recursively starting from root (index 0)
     int next_free_node = 1;
-    buildTreeRecursive(h_tree_nodes, particles, particle_indices, n_particles,
+    buildTreeRecursive(h_tree_nodes_, particles, particle_indices, n_particles,
                       0, next_free_node, x_min, x_max, y_min, y_max, z_min, z_max,
-                      0, max_tree_depth);
+                      0, max_tree_depth_);
     
     free(particle_indices);
 }
 
 void OctTree::copyToDevice() {
-    if (!tree_allocated) return;
+    if (!tree_allocated_) return;
     
-    cudaError_t err = cudaMemcpy(d_tree_nodes, h_tree_nodes, 
-                                max_tree_nodes * sizeof(TreeNode), cudaMemcpyHostToDevice);
+    cudaError_t err = cudaMemcpy(d_tree_nodes_, h_tree_nodes_, 
+                                max_tree_nodes_ * sizeof(TreeNode), cudaMemcpyHostToDevice);
     checkCudaError(err, "Failed to copy tree to device");
 } 
