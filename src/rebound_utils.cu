@@ -1,4 +1,4 @@
-#include "rebound_cuda.h"
+#include "rebound_utils.h"
 #include <iostream>
 #include <cstdlib>
 

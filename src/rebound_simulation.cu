@@ -1,27 +1,18 @@
-#include "rebound_cuda.h"
+#include "rebound_simulation.h"
+#include "rebound_gravity.h"
+#include "rebound_integration.h"
+#include "rebound_utils.h"
 #include <iostream>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 
-// External kernel declarations (defined in other files)
-extern __global__ void computeForcesBasicKernel(Particle* particles, int n, double G, double softening);
-extern __global__ void computeForcesCompensatedKernel(Particle* particles, int n, double G, double softening);
-extern __global__ void computeForcesTreeKernel(Particle* particles, TreeNode* tree_nodes, int n,
-                                              double G, double opening_angle, double softening);
-extern __global__ void updatePositionsKernel(Particle* particles, int n, double dt);
-extern __global__ void updateVelocitiesKernel(Particle* particles, int n, double dt);
-
 // ReboundCudaSimulation class implementation
 ReboundCudaSimulation::ReboundCudaSimulation() {
     h_particles = nullptr;
     d_particles = nullptr;
-    h_tree_nodes = nullptr;
-    d_tree_nodes = nullptr;
     particles_allocated = false;
-    tree_allocated = false;
     device_particles_current = false;  // Initially device particles are not current
-    max_tree_nodes = 0;
     particle_count = 0;
     
     // Initialize configuration with default values
@@ -33,6 +24,8 @@ ReboundCudaSimulation::ReboundCudaSimulation() {
     config.softening = 0.0;
     config.opening_angle = 0.5;
     config.max_iterations = 1000000;
+    config.max_tree_depth = 20;
+    config.collision_detection = false;
 }
 
 ReboundCudaSimulation::~ReboundCudaSimulation() {
@@ -42,24 +35,13 @@ ReboundCudaSimulation::~ReboundCudaSimulation() {
         h_particles = nullptr;
     }
     
-    if (h_tree_nodes) {
-        free(h_tree_nodes);
-        h_tree_nodes = nullptr;
-    }
-    
     // Free device memory
     if (d_particles) {
         cudaFree(d_particles);
         d_particles = nullptr;
     }
     
-    if (d_tree_nodes) {
-        cudaFree(d_tree_nodes);
-        d_tree_nodes = nullptr;
-    }
-    
     particles_allocated = false;
-    tree_allocated = false;
 }
 
 void ReboundCudaSimulation::initializeSimulation(int n_particles, double dt, double G) {
@@ -193,7 +175,7 @@ void ReboundCudaSimulation::computeForces() {
             // Build tree before computing forces
             buildTree();
             computeForcesTreeKernel<<<blocksPerGrid, threadsPerBlock>>>(
-                d_particles, d_tree_nodes, particle_count, 
+                d_particles, oct_tree.getDeviceNodes(), particle_count, 
                 config.G, config.opening_angle, config.softening);
             break;
     }
@@ -359,4 +341,15 @@ double ReboundCudaSimulation::getTotalEnergy() {
     }
     
     return kinetic + potential;
+}
+
+void ReboundCudaSimulation::buildTree() {
+    // Copy particles from device to host for tree construction
+    copyParticlesFromDevice();
+    
+    // Build tree using the OctTree class
+    oct_tree.buildTree(h_particles, particle_count);
+    
+    // Copy tree to device for GPU kernels
+    oct_tree.copyToDevice();
 } 

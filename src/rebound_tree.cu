@@ -1,25 +1,58 @@
-#include "rebound_cuda.h"
+#include "rebound_tree.h"
+#include "rebound_utils.h"
 #include <iostream>
 #include <cmath>
 #include <cstring>
+#include <cstdlib>
 #include <algorithm>
 
-// Function to find bounding box for all particles
-void ReboundCudaSimulation::findBoundingBox(double& x_min, double& x_max, double& y_min, double& y_max, 
-                                           double& z_min, double& z_max) {
-    if (config.n_particles == 0) return;
+// OctTree class implementation
+
+OctTree::OctTree(int max_depth) {
+    h_tree_nodes = nullptr;
+    d_tree_nodes = nullptr;
+    tree_allocated = false;
+    max_tree_nodes = 0;
+    max_tree_depth = max_depth;
+}
+
+OctTree::~OctTree() {
+    cleanup();
+}
+
+void OctTree::cleanup() {
+    // Free host memory
+    if (h_tree_nodes) {
+        free(h_tree_nodes);
+        h_tree_nodes = nullptr;
+    }
     
-    x_min = x_max = h_particles[0].x;
-    y_min = y_max = h_particles[0].y;
-    z_min = z_max = h_particles[0].z;
+    // Free device memory
+    if (d_tree_nodes) {
+        cudaFree(d_tree_nodes);
+        d_tree_nodes = nullptr;
+    }
     
-    for (int i = 1; i < config.n_particles; i++) {
-        x_min = std::min(x_min, h_particles[i].x);
-        x_max = std::max(x_max, h_particles[i].x);
-        y_min = std::min(y_min, h_particles[i].y);
-        y_max = std::max(y_max, h_particles[i].y);
-        z_min = std::min(z_min, h_particles[i].z);
-        z_max = std::max(z_max, h_particles[i].z);
+    tree_allocated = false;
+    max_tree_nodes = 0;
+}
+
+void OctTree::findBoundingBox(Particle* particles, int n_particles,
+                              double& x_min, double& x_max, double& y_min, double& y_max, 
+                              double& z_min, double& z_max) {
+    if (n_particles == 0) return;
+    
+    x_min = x_max = particles[0].x;
+    y_min = y_max = particles[0].y;
+    z_min = z_max = particles[0].z;
+    
+    for (int i = 1; i < n_particles; i++) {
+        x_min = std::min(x_min, particles[i].x);
+        x_max = std::max(x_max, particles[i].x);
+        y_min = std::min(y_min, particles[i].y);
+        y_max = std::max(y_max, particles[i].y);
+        z_min = std::min(z_min, particles[i].z);
+        z_max = std::max(z_max, particles[i].z);
     }
     
     // Add small margin to avoid edge cases
@@ -29,12 +62,13 @@ void ReboundCudaSimulation::findBoundingBox(double& x_min, double& x_max, double
     z_min -= margin; z_max += margin;
 }
 
-// Allocate memory for tree nodes
-void ReboundCudaSimulation::allocateTreeMemory() {
-    if (tree_allocated) return;
+void OctTree::allocateMemory(int n_particles) {
+    if (tree_allocated) {
+        cleanup();  // Clean up previous allocation
+    }
     
     // Estimate maximum number of tree nodes (conservative upper bound)
-    max_tree_nodes = 8 * config.n_particles;  // Oct-tree can have at most 8*N nodes
+    max_tree_nodes = 8 * n_particles;  // Oct-tree can have at most 8*N nodes
     
     // Allocate host memory for tree nodes
     h_tree_nodes = (TreeNode*)malloc(max_tree_nodes * sizeof(TreeNode));
@@ -64,9 +98,8 @@ void ReboundCudaSimulation::allocateTreeMemory() {
     tree_allocated = true;
 }
 
-// Function to determine which child octant a particle belongs to
-int getChildIndex(double px, double py, double pz, 
-                 double cx, double cy, double cz) {
+int OctTree::getChildIndex(double px, double py, double pz, 
+                          double cx, double cy, double cz) {
     int index = 0;
     if (px >= cx) index |= 1;  // x bit
     if (py >= cy) index |= 2;  // y bit
@@ -74,13 +107,12 @@ int getChildIndex(double px, double py, double pz,
     return index;
 }
 
-// Recursive function to build the tree
-int buildTreeRecursive(TreeNode* nodes, Particle* particles, int* particle_indices, 
-                      int n_particles, int node_index, int& next_free_node,
-                      double x_min, double x_max, double y_min, double y_max,
-                      double z_min, double z_max, int depth, int max_depth) {
+int OctTree::buildTreeRecursive(TreeNode* nodes, Particle* particles, int* particle_indices, 
+                               int n_particles, int node_index, int& next_free_node,
+                               double x_min, double x_max, double y_min, double y_max,
+                               double z_min, double z_max, int depth, int max_depth) {
     
-    if (depth > max_depth || next_free_node >= 8 * n_particles) {
+    if (depth > max_depth || next_free_node >= max_tree_nodes) {
         return -1;  // Tree too deep or out of memory
     }
     
@@ -147,7 +179,7 @@ int buildTreeRecursive(TreeNode* nodes, Particle* particles, int* particle_indic
     // Create child nodes for non-empty octants
     for (int oct = 0; oct < 8; oct++) {
         if (octant_counts[oct] > 0) {
-            if (next_free_node >= 8 * n_particles) break;
+            if (next_free_node >= max_tree_nodes) break;
             
             int child_index = next_free_node++;
             node.children[oct] = child_index;
@@ -180,24 +212,20 @@ int buildTreeRecursive(TreeNode* nodes, Particle* particles, int* particle_indic
     return node_index;
 }
 
-// Build the oct-tree for Barnes-Hut algorithm
-void ReboundCudaSimulation::buildTree() {
+void OctTree::buildTree(Particle* particles, int n_particles) {
     if (!tree_allocated) {
-        allocateTreeMemory();
+        allocateMemory(n_particles);
     }
     
-    if (config.n_particles == 0) return;
-    
-    // Copy particles from device to host for tree construction
-    copyParticlesFromDevice();
+    if (n_particles == 0) return;
     
     // Find bounding box
     double x_min, x_max, y_min, y_max, z_min, z_max;
-    findBoundingBox(x_min, x_max, y_min, y_max, z_min, z_max);
+    findBoundingBox(particles, n_particles, x_min, x_max, y_min, y_max, z_min, z_max);
     
     // Create array of particle indices
-    int* particle_indices = (int*)malloc(config.n_particles * sizeof(int));
-    for (int i = 0; i < config.n_particles; i++) {
+    int* particle_indices = (int*)malloc(n_particles * sizeof(int));
+    for (int i = 0; i < n_particles; i++) {
         particle_indices[i] = i;
     }
     
@@ -215,18 +243,14 @@ void ReboundCudaSimulation::buildTree() {
     
     // Build tree recursively starting from root (index 0)
     int next_free_node = 1;
-    buildTreeRecursive(h_tree_nodes, h_particles, particle_indices, config.n_particles,
+    buildTreeRecursive(h_tree_nodes, particles, particle_indices, n_particles,
                       0, next_free_node, x_min, x_max, y_min, y_max, z_min, z_max,
-                      0, config.max_tree_depth);
+                      0, max_tree_depth);
     
     free(particle_indices);
-    
-    // Copy tree to device
-    copyTreeToDevice();
 }
 
-// Copy tree to device memory
-void ReboundCudaSimulation::copyTreeToDevice() {
+void OctTree::copyToDevice() {
     if (!tree_allocated) return;
     
     cudaError_t err = cudaMemcpy(d_tree_nodes, h_tree_nodes, 

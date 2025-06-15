@@ -1,4 +1,4 @@
-#include "rebound_cuda.h"
+#include "rebound_integration.h"
 
 // CUDA kernel to update particle positions (leapfrog integration - drift step)
 __global__ void updatePositionsKernel(Particle* particles, int n, double dt) {

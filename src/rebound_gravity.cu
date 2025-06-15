@@ -1,4 +1,4 @@
-#include "rebound_cuda.h"
+#include "rebound_gravity.h"
 #include <cmath>
 
 // CUDA kernel for basic gravity calculation (direct summation)
