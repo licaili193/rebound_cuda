@@ -34,6 +34,10 @@ public:
     void computeForces();
     void updatePositions();
     
+    // Integrator functions (DKD pattern)
+    void integratorPart1();  // First drift part
+    void integratorPart2();  // Kick + second drift part
+    
     // Tree-specific functions
     void buildTree();
     

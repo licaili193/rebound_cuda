@@ -205,30 +205,65 @@ void ReboundCudaSimulation::updatePositions() {
     checkCudaError(err, "Device synchronization failed in updatePositions");
 }
 
-void ReboundCudaSimulation::step() {
-    // Leapfrog integration steps:
+void ReboundCudaSimulation::integratorPart1() {
+    // First part of DKD integration: Drift by half timestep
+    if (particle_count_ == 0) return;
     
-    // 1. Update velocities by half step (kick)
     int threadsPerBlock = 256;
     int blocksPerGrid = (particle_count_ + threadsPerBlock - 1) / threadsPerBlock;
     
-    updateVelocitiesKernel<<<blocksPerGrid, threadsPerBlock>>>(
+    // Drift: update positions by half timestep using current velocities
+    updatePositionsKernel<<<blocksPerGrid, threadsPerBlock>>>(
         d_particles_, particle_count_, config_.dt * 0.5);
     
-    // 2. Update positions by full step (drift)
-    updatePositions();
+    cudaError_t err = cudaGetLastError();
+    checkCudaError(err, "Kernel execution failed in integratorPart1");
     
-    // 3. Compute new forces
+    err = cudaDeviceSynchronize();
+    checkCudaError(err, "Device synchronization failed in integratorPart1");
+}
+
+void ReboundCudaSimulation::integratorPart2() {
+    // Second part of DKD integration: Kick + Drift
+    if (particle_count_ == 0) return;
+    
+    int threadsPerBlock = 256;
+    int blocksPerGrid = (particle_count_ + threadsPerBlock - 1) / threadsPerBlock;
+    
+    // Kick: update velocities by full timestep using accelerations
+    updateVelocitiesKernel<<<blocksPerGrid, threadsPerBlock>>>(
+        d_particles_, particle_count_, config_.dt);
+    
+    // Drift: update positions by half timestep using new velocities
+    updatePositionsKernel<<<blocksPerGrid, threadsPerBlock>>>(
+        d_particles_, particle_count_, config_.dt * 0.5);
+    
+    cudaError_t err = cudaGetLastError();
+    checkCudaError(err, "Kernel execution failed in integratorPart2");
+    
+    err = cudaDeviceSynchronize();
+    checkCudaError(err, "Device synchronization failed in integratorPart2");
+}
+
+void ReboundCudaSimulation::step() {
+    // Proper DKD integration pattern following rebound's approach:
+    
+    // 1. Integrator Part 1: First drift (D)
+    integratorPart1();
+    
+    // 2. Tree updates (if needed for tree-based gravity)
+    // This happens inside computeForces for GRAVITY_TREE mode
+    
+    // 3. Calculate accelerations (gravity and other forces)
     computeForces();
     
-    // 4. Update velocities by half step (kick)
-    updateVelocitiesKernel<<<blocksPerGrid, threadsPerBlock>>>(
-        d_particles_, particle_count_, config_.dt * 0.5);
+    // 4. Integrator Part 2: Kick + second drift (KD)
+    integratorPart2();
     
-    // Update simulation time
+    // 5. Update simulation time
     config_.t += config_.dt;
     
-    // Synchronize to ensure all operations are complete
+    // 6. Synchronize to ensure all operations are complete
     cudaError_t err = cudaDeviceSynchronize();
     checkCudaError(err, "Device synchronization failed in step");
 }
