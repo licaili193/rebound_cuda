@@ -1,5 +1,16 @@
 #include "rebound_integration.h"
 
+// CUDA kernel to zero out particle accelerations (for GRAVITY_NONE mode)
+__global__ void zeroAccelerationsKernel(Particle* particles, int n) {
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+    
+    if (i < n) {
+        particles[i].ax = 0.0;
+        particles[i].ay = 0.0;
+        particles[i].az = 0.0;
+    }
+}
+
 // CUDA kernel to update particle positions (leapfrog integration - drift step)
 __global__ void updatePositionsKernel(Particle* particles, int n, double dt) {
     int i = blockDim.x * blockIdx.x + threadIdx.x;

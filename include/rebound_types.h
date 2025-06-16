@@ -55,4 +55,26 @@ struct SimulationConfig {
     int max_tree_depth;         // Maximum tree depth
 };
 
+// Collision detection methods
+enum CollisionDetection {
+    COLLISION_NONE = 0,
+    COLLISION_DIRECT = 1,
+    COLLISION_TREE = 2
+};
+
+// Collision resolution methods  
+enum CollisionResolution {
+    COLLISION_RESOLVE_HALT = 0,
+    COLLISION_RESOLVE_HARDSPHERE = 1,
+    COLLISION_RESOLVE_MERGE = 2
+};
+
+// Collision information structure
+struct Collision {
+    int p1;          // Index of first particle
+    int p2;          // Index of second particle
+    float time;      // Time when collision occurred
+    float distance;  // Distance between particles at collision
+};
+
 #endif // REBOUND_TYPES_H 

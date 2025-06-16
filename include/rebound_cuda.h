@@ -8,5 +8,6 @@
 #include "rebound_integration.h"
 #include "rebound_tree.h"
 #include "rebound_utils.h"
+#include "rebound_collision.h"
 
 #endif // REBOUND_CUDA_H 

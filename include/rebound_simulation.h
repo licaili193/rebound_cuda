@@ -3,6 +3,7 @@
 
 #include "rebound_types.h"
 #include "rebound_tree.h"
+#include "rebound_collision.h"
 
 // REBOUND CUDA simulation class
 class ReboundCudaSimulation {
@@ -14,6 +15,16 @@ private:
     bool particles_allocated_;
     bool device_particles_current_; // Flag to track if device particles are up to date
     int particle_count_;         // Current number of particles added
+    
+    // Collision system
+    CollisionDetector collision_detector_;
+    Collision* d_collisions_;
+    int max_collisions_;
+    bool collision_enabled_;
+    
+    // Helper methods
+    void freeCollisionMemory();
+    int detectAndResolveCollisions(float dt, float current_time);
     
 public:
     ReboundCudaSimulation();
@@ -52,6 +63,11 @@ public:
     double getCurrentTime() const { return config_.t; }
     const Particle* getParticles() const { return h_particles_; }
     GravityMode getGravityMode() const { return config_.gravity_mode; }
+    
+    // Collision system methods
+    void setCollisionDetection(CollisionDetection method);
+    void setCollisionResolution(CollisionResolution method);
+    void setCoefficientOfRestitution(float epsilon);
 };
 
 #endif // REBOUND_SIMULATION_H 

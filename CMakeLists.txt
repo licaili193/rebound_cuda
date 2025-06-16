@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
 project(rebound_cuda LANGUAGES CXX CUDA)
 
 # Set C++ and CUDA standards
@@ -6,6 +6,9 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_STANDARD 14)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+
+# Find CUDA package
+find_package(CUDA REQUIRED)
 
 # Add include directories
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -17,11 +20,14 @@ add_library(rebound_cuda_lib
     src/rebound_tree.cu
     src/rebound_integration.cu
     src/rebound_utils.cu
+    src/rebound_collision.cu
 )
 
 set_target_properties(rebound_cuda_lib PROPERTIES
     CUDA_SEPARABLE_COMPILATION ON
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
     CUDA_ARCHITECTURES 75
+    POSITION_INDEPENDENT_CODE ON
 )
 
 # Add main examples executable
@@ -34,6 +40,19 @@ add_executable(rebound_examples
 target_link_libraries(rebound_examples rebound_cuda_lib)
 set_target_properties(rebound_examples PROPERTIES
     CUDA_SEPARABLE_COMPILATION ON
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
+    CUDA_ARCHITECTURES 75
+)
+
+# Add collision example executable
+add_executable(collision_example 
+    examples/collision_example.cpp
+)
+
+target_link_libraries(collision_example rebound_cuda_lib)
+set_target_properties(collision_example PROPERTIES
+    CUDA_SEPARABLE_COMPILATION ON
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
     CUDA_ARCHITECTURES 75
 )
 
