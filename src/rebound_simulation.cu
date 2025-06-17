@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
 
 // ReboundCudaSimulation class implementation
 ReboundCudaSimulation::ReboundCudaSimulation() 
@@ -145,46 +146,47 @@ void ReboundCudaSimulation::copyParticlesFromDevice() {
 void ReboundCudaSimulation::computeForces() {
     if (particle_count_ == 0) return;
     
+    // Skip all force calculations if gravity is disabled
+    if (config_.gravity_mode == GRAVITY_NONE) {
+        // Ensure accelerations are zero only once at the beginning
+        if (config_.t == 0.0) {
+            int threadsPerBlock = 256;
+            int blocksPerGrid = (particle_count_ + threadsPerBlock - 1) / threadsPerBlock;
+            zeroAccelerationsKernel<<<blocksPerGrid, threadsPerBlock>>>(d_particles_, particle_count_);
+            cudaError_t err = cudaGetLastError();
+            checkCudaError(err, "Kernel execution failed in computeForces (GRAVITY_NONE)");
+            err = cudaDeviceSynchronize();
+            checkCudaError(err, "Device synchronization failed in computeForces (GRAVITY_NONE)");
+        }
+        return; // No gravitational forces
+    }
+
     // Set up kernel launch parameters
     int threadsPerBlock = 256;
     int blocksPerGrid = (particle_count_ + threadsPerBlock - 1) / threadsPerBlock;
-    
+
     switch (config_.gravity_mode) {
-        case GRAVITY_NONE:
-            // No gravity calculation - just zero out accelerations
-            {
-                int threadsPerBlock = 256;
-                int blocksPerGrid = (particle_count_ + threadsPerBlock - 1) / threadsPerBlock;
-                
-                zeroAccelerationsKernel<<<blocksPerGrid, threadsPerBlock>>>(
-                    d_particles_, particle_count_);
-            }
-            break;
-            
         case GRAVITY_BASIC:
             computeForcesBasicKernel<<<blocksPerGrid, threadsPerBlock>>>(
                 d_particles_, particle_count_, config_.G, config_.softening);
             break;
-            
         case GRAVITY_COMPENSATED:
             computeForcesCompensatedKernel<<<blocksPerGrid, threadsPerBlock>>>(
                 d_particles_, particle_count_, config_.G, config_.softening);
             break;
-            
         case GRAVITY_TREE:
-            // Build tree before computing forces
             buildTree();
             computeForcesTreeKernel<<<blocksPerGrid, threadsPerBlock>>>(
-                d_particles_, oct_tree_.getDeviceNodes(), particle_count_, 
+                d_particles_, oct_tree_.getDeviceNodes(), particle_count_,
                 config_.G, config_.opening_angle, config_.softening);
+            break;
+        default:
             break;
     }
     
     // Check for kernel errors
     cudaError_t err = cudaGetLastError();
     checkCudaError(err, "Kernel execution failed in computeForces");
-    
-    // Wait for kernel to complete
     err = cudaDeviceSynchronize();
     checkCudaError(err, "Device synchronization failed in computeForces");
 }
@@ -278,74 +280,106 @@ void ReboundCudaSimulation::step() {
     checkCudaError(err, "Device synchronization failed in step");
 }
 
+// =============================================================================
+// Observer Pattern Implementation
+// =============================================================================
+
+void ReboundCudaSimulation::addObserver(SimulationObserver* observer) {
+    if (observer && std::find(observers_.begin(), observers_.end(), observer) == observers_.end()) {
+        observers_.push_back(observer);
+    }
+}
+
+void ReboundCudaSimulation::removeObserver(SimulationObserver* observer) {
+    auto it = std::find(observers_.begin(), observers_.end(), observer);
+    if (it != observers_.end()) {
+        observers_.erase(it);
+    }
+}
+
+void ReboundCudaSimulation::notifySimulationStart() {
+    for (auto* observer : observers_) {
+        observer->onSimulationStart(particle_count_);
+    }
+}
+
+void ReboundCudaSimulation::notifySimulationStep(int step) {
+    for (auto* observer : observers_) {
+        observer->onSimulationStep(config_.t, step, particle_count_, 0.0, 0);
+    }
+}
+
+void ReboundCudaSimulation::notifySimulationEnd(int total_steps) {
+    for (auto* observer : observers_) {
+        observer->onSimulationEnd(config_.t, total_steps);
+    }
+}
+
+void ReboundCudaSimulation::notifyCollisionDetected(int particle1, int particle2) {
+    for (auto* observer : observers_) {
+        observer->onCollisionDetected(particle1, particle2, config_.t);
+    }
+}
+
+// =============================================================================
+// Efficient Integration Method (completely independent of streaming)
+// =============================================================================
+
 void ReboundCudaSimulation::integrate(double t_end) {
-    std::cout << "DEBUG: Starting integration..." << std::endl;
+    std::cout << "Starting integration to time " << t_end << std::endl;
     
-    // Debug: Check particles before copying to device
-    std::cout << "DEBUG: Particles before copying to device:" << std::endl;
-    for (int i = 0; i < particle_count_; i++) {
-        Particle& p = h_particles_[i];
-        std::cout << "  Particle " << i << ": mass=" << p.m << ", pos=(" << p.x << ", " << p.y << ", " << p.z << ")" << std::endl;
+    if (particle_count_ == 0) {
+        std::cout << "No particles to integrate" << std::endl;
+        return;
     }
     
-    // Copy particles to device
-    copyParticlesToDevice();
+    // Notify observers that simulation is starting
+    notifySimulationStart();
     
-    // Debug: Copy back immediately to check if copy worked
-    copyParticlesFromDevice();
-    std::cout << "DEBUG: Particles after round-trip copy:" << std::endl;
-    for (int i = 0; i < particle_count_; i++) {
-        Particle& p = h_particles_[i];
-        std::cout << "  Particle " << i << ": mass=" << p.m << ", pos=(" << p.x << ", " << p.y << ", " << p.z << ")" << std::endl;
-    }
-    
-    // Copy to device again for simulation
+    // One-time setup: copy particles to device only once
     copyParticlesToDevice();
     
     // Initial force calculation
     computeForces();
     
-    // Debug: Check after force calculation
-    copyParticlesFromDevice();
-    std::cout << "DEBUG: Particles after force calculation:" << std::endl;
-    for (int i = 0; i < particle_count_; i++) {
-        Particle& p = h_particles_[i];
-        std::cout << "  Particle " << i << ": mass=" << p.m << ", pos=(" << p.x << ", " << p.y << ", " << p.z << "), acc=(" << p.ax << ", " << p.ay << ", " << p.az << ")" << std::endl;
-    }
-    
-    // Copy back to device for integration
-    copyParticlesToDevice();
-    
     int steps = 0;
     while (config_.t < t_end && steps < config_.max_iterations) {
-        std::cout << "DEBUG: About to execute step " << steps << ", current time = " << config_.t << std::endl;
+        // Adjust timestep for final step to not overshoot
+        double original_dt = config_.dt;
+        if (config_.t + config_.dt > t_end) {
+            config_.dt = t_end - config_.t;
+        }
         
+        // Execute simulation step (all on GPU)
         step();
         steps++;
         
-        // Debug: Check particles after each step
-        copyParticlesFromDevice();
-        std::cout << "DEBUG: After step " << steps << ", time = " << config_.t << ":" << std::endl;
-        for (int i = 0; i < particle_count_; i++) {
-            Particle& p = h_particles_[i];
-            std::cout << "  Particle " << i << ": pos=(" << p.x << ", " << p.y << ", " << p.z << "), vel=(" << p.vx << ", " << p.vy << ", " << p.vz << ")" << std::endl;
-        }
-        copyParticlesToDevice(); // Copy back to device for next step
+        // Restore original timestep
+        config_.dt = original_dt;
         
-        // Optional: print progress every 1000 steps
+        // Notify observers of simulation step (optional - no overhead if no observers)
+        if (!observers_.empty()) {
+            notifySimulationStep(steps);
+        }
+        
+        // Optional progress reporting
         if (steps % 1000 == 0) {
-            std::cout << "Step " << steps << ", t = " << config_.t << std::endl;
-        }
-        
-        // Stop after reasonable number of steps for debugging
-        if (steps >= 5) {
-            std::cout << "DEBUG: Stopping after 5 steps for debugging" << std::endl;
-            break;
+            std::cout << "Step " << steps << ", t = " << config_.t << " (GPU-resident)" << std::endl;
         }
     }
     
-    // Copy final results back to host
+    // Notify observers that simulation has ended
+    notifySimulationEnd(steps);
+    
+    // Ensure host-side particle data is up-to-date for any post-integration queries
     copyParticlesFromDevice();
+
+    // Host is now current representation
+    device_particles_current_ = false;
+
+    std::cout << "Integration completed. " << steps << " steps executed." << std::endl;
+    std::cout << "Final time: " << config_.t << std::endl;
+    std::cout << "Data remains on GPU. Use observer pattern or legacy methods to access." << std::endl;
 }
 
 void ReboundCudaSimulation::printParticles() {

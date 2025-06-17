@@ -77,4 +77,64 @@ struct Collision {
     float distance;  // Distance between particles at collision
 };
 
+// Data streaming modes for different use cases
+enum StreamingMode {
+    STREAM_NONE = 0,        // No streaming, data stays on GPU (for end-of-sim or GPU visualization)
+    STREAM_PERIODIC = 1,    // Stream at fixed intervals (configurable)
+    STREAM_CONTINUOUS = 2,  // Stream every step (high bandwidth, real-time)
+    STREAM_ON_DEMAND = 3    // Stream only when explicitly requested
+};
+
+// GPU logging levels
+enum LogLevel {
+    LOG_NONE = 0,
+    LOG_ERROR = 1,
+    LOG_WARNING = 2,
+    LOG_INFO = 3,
+    LOG_DEBUG = 4
+};
+
+// Data buffer configuration
+struct BufferConfig {
+    int max_frames;         // Maximum number of simulation frames to buffer
+    int stream_interval;    // For STREAM_PERIODIC mode: stream every N steps
+    bool enable_gpu_logging; // Enable GPU-side logging
+    LogLevel log_level;     // Minimum log level to capture
+    bool async_streaming;   // Enable asynchronous host-side processing
+    int worker_threads;     // Number of worker threads for async processing
+};
+
+// Simulation frame data (what gets streamed/buffered)
+struct SimulationFrame {
+    double time;            // Simulation time
+    int step;              // Step number
+    int n_particles;       // Number of active particles
+    Particle* particles;   // Particle data (device or host pointer)
+    double total_energy;   // Energy at this frame
+    int n_collisions;      // Number of collisions in this step
+};
+
+// GPU log entry
+struct GPULogEntry {
+    double time;           // Simulation time when logged
+    int step;             // Simulation step
+    LogLevel level;       // Log level
+    int thread_id;        // GPU thread ID
+    char message[256];    // Log message
+};
+
+// Observer pattern for simulation events (decoupled streaming)
+class SimulationObserver {
+public:
+    virtual ~SimulationObserver() = default;
+    virtual void onSimulationStep(double time, int step, int n_particles, double energy = 0.0, int n_collisions = 0) = 0;
+    virtual void onSimulationStart(int n_particles) {}
+    virtual void onSimulationEnd(double final_time, int total_steps) {}
+    virtual void onCollisionDetected(int particle1, int particle2, double time) {}
+};
+
+// Callback function types for async processing
+typedef void (*FrameCallback)(const SimulationFrame* frame, void* user_data);
+typedef void (*LogCallback)(const GPULogEntry* log_entry, void* user_data);
+
 #endif // REBOUND_TYPES_H 

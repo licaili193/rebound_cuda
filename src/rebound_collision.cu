@@ -59,34 +59,34 @@ __global__ void resolveCollisionsKernel(Particle* particles, Collision* collisio
     
     if (method == COLLISION_RESOLVE_HARDSPHERE) {
         // Hard sphere collision resolution
-        float dx = p1.x - p2.x;
-        float dy = p1.y - p2.y;
-        float dz = p1.z - p2.z;
-        float distance = sqrtf(dx*dx + dy*dy + dz*dz);
+        double dx = p1.x - p2.x;
+        double dy = p1.y - p2.y;
+        double dz = p1.z - p2.z;
+        double distance = sqrt(dx*dx + dy*dy + dz*dz);
         
-        if (distance > 0.0f) {
+        if (distance > 0.0) {
             // Normalize collision vector
-            float nx = dx / distance;
-            float ny = dy / distance;
-            float nz = dz / distance;
+            double nx = dx / distance;
+            double ny = dy / distance;
+            double nz = dz / distance;
             
             // Relative velocity
-            float dvx = p1.vx - p2.vx;
-            float dvy = p1.vy - p2.vy;
-            float dvz = p1.vz - p2.vz;
+            double dvx = p1.vx - p2.vx;
+            double dvy = p1.vy - p2.vy;
+            double dvz = p1.vz - p2.vz;
             
             // Velocity component along collision normal
-            float dvn = dvx*nx + dvy*ny + dvz*nz;
+            double dvn = dvx*nx + dvy*ny + dvz*nz;
             
-            if (dvn < 0.0f) { // Only resolve if approaching
+            if (dvn < 0.0) { // Only resolve if approaching
                 // Calculate impulse
-                float total_mass = p1.m + p2.m;
-                float impulse = -(1.0f + coefficient_of_restitution) * dvn / total_mass;
+                double total_mass = p1.m + p2.m;
+                double impulse = -(1.0 + coefficient_of_restitution) * dvn / total_mass;
                 
                 // Apply impulse to both particles
-                float impulse_x = impulse * nx;
-                float impulse_y = impulse * ny;
-                float impulse_z = impulse * nz;
+                double impulse_x = impulse * nx;
+                double impulse_y = impulse * ny;
+                double impulse_z = impulse * nz;
                 
                 p1.vx += impulse_x * p2.m;
                 p1.vy += impulse_y * p2.m;
@@ -100,10 +100,10 @@ __global__ void resolveCollisionsKernel(Particle* particles, Collision* collisio
     }
     else if (method == COLLISION_RESOLVE_MERGE) {
         // Merge particles - combine mass, momentum, conserve volume
-        float total_mass = p1.m + p2.m;
-        float total_momentum_x = p1.m * p1.vx + p2.m * p2.vx;
-        float total_momentum_y = p1.m * p1.vy + p2.m * p2.vy;
-        float total_momentum_z = p1.m * p1.vz + p2.m * p2.vz;
+        double total_mass = p1.m + p2.m;
+        double total_momentum_x = p1.m * p1.vx + p2.m * p2.vx;
+        double total_momentum_y = p1.m * p1.vy + p2.m * p2.vy;
+        double total_momentum_z = p1.m * p1.vz + p2.m * p2.vz;
         
         // Combined position (center of mass)
         p1.x = (p1.m * p1.x + p2.m * p2.x) / total_mass;
@@ -119,9 +119,9 @@ __global__ void resolveCollisionsKernel(Particle* particles, Collision* collisio
         p1.m = total_mass;
         
         // Combined radius (conserve volume: V = 4/3 * π * r³)
-        float volume1 = p1.r * p1.r * p1.r;
-        float volume2 = p2.r * p2.r * p2.r;
-        p1.r = powf(volume1 + volume2, 1.0f/3.0f);
+        double volume1 = p1.r * p1.r * p1.r;
+        double volume2 = p2.r * p2.r * p2.r;
+        p1.r = pow(volume1 + volume2, 1.0/3.0);
         
         // Mark second particle for removal
         p2.m = 0.0f;
@@ -216,19 +216,19 @@ int CollisionDetector::resolveCollisions(Particle* particles, Collision* collisi
 }
 
 bool CollisionDetector::checkCollision(const Particle& p1, const Particle& p2, float dt) {
-    if (p1.r <= 0.0f || p2.r <= 0.0f) return false;
+    if (p1.r <= 0.0 || p2.r <= 0.0) return false;
     
-    float dx = p1.x - p2.x;
-    float dy = p1.y - p2.y;
-    float dz = p1.z - p2.z;
-    float distance = sqrtf(dx*dx + dy*dy + dz*dz);
+    double dx = p1.x - p2.x;
+    double dy = p1.y - p2.y;
+    double dz = p1.z - p2.z;
+    double distance = sqrt(dx*dx + dy*dy + dz*dz);
     
     return distance < (p1.r + p2.r);
 }
 
 float CollisionDetector::getDistance(const Particle& p1, const Particle& p2) {
-    float dx = p1.x - p2.x;
-    float dy = p1.y - p2.y;
-    float dz = p1.z - p2.z;
-    return sqrtf(dx*dx + dy*dy + dz*dz);
+    double dx = p1.x - p2.x;
+    double dy = p1.y - p2.y;
+    double dz = p1.z - p2.z;
+    return sqrt(dx*dx + dy*dy + dz*dz);
 } 

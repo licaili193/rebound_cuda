@@ -21,6 +21,7 @@ add_library(rebound_cuda_lib
     src/rebound_integration.cu
     src/rebound_utils.cu
     src/rebound_collision.cu
+    src/rebound_streaming.cu
 )
 
 set_target_properties(rebound_cuda_lib PROPERTIES
@@ -56,6 +57,30 @@ set_target_properties(collision_example PROPERTIES
     CUDA_ARCHITECTURES 75
 )
 
+# Add streaming example executable
+add_executable(streaming_example 
+    examples/streaming_example.cpp
+)
+
+target_link_libraries(streaming_example rebound_cuda_lib)
+set_target_properties(streaming_example PROPERTIES
+    CUDA_SEPARABLE_COMPILATION ON
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
+    CUDA_ARCHITECTURES 75
+)
+
+# Add observer pattern example executable
+add_executable(observer_example 
+    examples/observer_pattern_example.cpp
+)
+
+target_link_libraries(observer_example rebound_cuda_lib)
+set_target_properties(observer_example PROPERTIES
+    CUDA_SEPARABLE_COMPILATION ON
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
+    CUDA_ARCHITECTURES 75
+)
+
 # Set build type to Release by default for better performance
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
@@ -68,4 +93,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 # Enable CUDA device debugging for Debug builds
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -g -G")
-endif() 
+endif()
+
+# Add tests subdirectory
+add_subdirectory(tests) 
