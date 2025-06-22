@@ -5,6 +5,7 @@
 #include <fstream>
 #include <mutex>
 #include <vector>
+#include <array>
 
 // Physical constants (SI units)
 constexpr double G_SI           = 6.67430e-11;        // m^3 kg^-1 s^-2
@@ -54,7 +55,7 @@ void runPlanetarySystemExample() {
     ReboundCudaSimulation sim;
 
     const double dt_seconds = 3600.0;                 // 1-hour timestep
-    const int    n_particles = 3;                     // Sun, Earth, Moon
+    const int    n_particles = 9;                     // Sun + 8 planets
 
     sim.initializeSimulation(n_particles, dt_seconds, G_SI);
 
@@ -63,8 +64,8 @@ void runPlanetarySystemExample() {
     // ----------------------------------------
     DataStreamingManager streamer;
     BufferConfig buf_cfg;
-    buf_cfg.max_frames       = 10000;   // plenty for ~9000 steps
-    buf_cfg.stream_interval  = 1;       // every step
+    buf_cfg.max_frames       = 20000;   // enough for ~18 250 daily frames (50 y)
+    buf_cfg.stream_interval  = 24;      // 24 h / dt = capture one frame per day
     buf_cfg.enable_gpu_logging = false;
     buf_cfg.async_streaming  = false;   // simpler offline fetch
 
@@ -78,23 +79,34 @@ void runPlanetarySystemExample() {
     // ------------------------------
     // Compute orbital velocities
     // ------------------------------
-    const double earth_orbit_vel    = std::sqrt(G_SI * M_SUN   / EARTH_ORBIT_RADIUS);  // ~29.8 km/s
-    const double moon_orbit_vel_rel = std::sqrt(G_SI * M_EARTH / MOON_ORBIT_RADIUS);   // ~1.02 km/s
+    auto orbitalVelocity = [](double semi_major_axis_m) {
+        return std::sqrt(G_SI * M_SUN / semi_major_axis_m);
+    };
 
     // ------------------------------
     // Add bodies (positions on x-axis, velocities along +y)
     // ------------------------------
 
-    // Sun (barycentre)
+    // Sun (index 0)
     sim.addParticle(M_SUN, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, R_SUN);
 
-    // Earth (1 AU from Sun)
-    sim.addParticle(M_EARTH, EARTH_ORBIT_RADIUS, 0.0, 0.0,
-                    0.0, earth_orbit_vel, 0.0, R_EARTH);
+    struct PlanetData { double mass, radius, a_AU; };
+    const std::array<PlanetData, 8> planets = {{
+        {3.3011e23, 2.4397e6, 0.387},   // Mercury
+        {4.8675e24, 6.0518e6, 0.723},   // Venus
+        {M_EARTH ,  R_EARTH,  1.0 },    // Earth
+        {6.4171e23, 3.3895e6, 1.524},   // Mars
+        {1.8982e27, 6.9911e7, 5.203},   // Jupiter
+        {5.6834e26, 5.8232e7, 9.537},   // Saturn
+        {8.6810e25, 2.5362e7, 19.191},  // Uranus
+        {1.02413e26,2.4622e7, 30.07}    // Neptune
+    }};
 
-    // Moon (offset from Earth, share velocity + relative orbital velocity)
-    sim.addParticle(M_MOON, EARTH_ORBIT_RADIUS + MOON_ORBIT_RADIUS, 0.0, 0.0,
-                    0.0, earth_orbit_vel + moon_orbit_vel_rel, 0.0, R_MOON);
+    for (const auto& pl : planets) {
+        double r_m = pl.a_AU * AU_IN_METERS;
+        double v   = orbitalVelocity(r_m);
+        sim.addParticle(pl.mass, r_m, 0.0, 0.0, 0.0, v, 0.0, pl.radius);
+    }
 
     std::cout << "Initial system:" << std::endl;
     sim.printParticles();
@@ -102,11 +114,12 @@ void runPlanetarySystemExample() {
     double initial_energy = sim.getTotalEnergy();
     std::cout << "Initial total energy: " << initial_energy << " J" << std::endl;
 
-    // Integrate for one sidereal year (365.25 days)
-    const double seconds_per_year = 365.25 * 24.0 * 3600.0; // ~3.15576e7 s
-    std::cout << "\nIntegrating for " << seconds_per_year << " seconds (~1 year)..." << std::endl;
+    // Integrate for 50 years to see outer-planet motion
+    const double seconds_per_year = 365.25 * 24.0 * 3600.0;
+    const double t_end = 50.0 * seconds_per_year;
+    std::cout << "\nIntegrating for 50 years (≈ " << t_end << " s)…" << std::endl;
 
-    sim.integrate(seconds_per_year);
+    sim.integrate(t_end);
 
     std::cout << "\nFinal system:" << std::endl;
     sim.printParticles();
