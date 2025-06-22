@@ -19,6 +19,7 @@ add_library(rebound_cuda_lib
     src/rebound_gravity.cu
     src/rebound_tree.cu
     src/rebound_integration.cu
+    src/rebound_integrator.cu
     src/rebound_utils.cu
     src/rebound_collision.cu
     src/rebound_streaming.cu

@@ -423,8 +423,6 @@ void DataStreamingManager::onSimulationStep(double time, int step, int n_particl
 
         // Record that we streamed this step (for potential future logic)
         last_streamed_step_ = step;
-        
-        std::cout << "Streamed data at step " << step << ", time " << time << std::endl;
     }
 }
 

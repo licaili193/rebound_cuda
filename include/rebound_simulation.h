@@ -4,6 +4,7 @@
 #include "rebound_types.h"
 #include "rebound_collision.h"
 #include "rebound_tree.h"
+#include "rebound_integrator.h"
 #include <cuda_runtime.h>
 #include <vector>
 
@@ -38,11 +39,20 @@ private:
     void buildTree();
     void freeCollisionMemory();
     
+    // Core GPU helper routines
+    void computeForces();
+    void updatePositions();
+    
     // Observer notification methods
     void notifySimulationStart();
     void notifySimulationStep(int step);
     void notifySimulationEnd(int total_steps);
     void notifyCollisionDetected(int particle1, int particle2);
+    
+    // Integration helpers removed – now handled by Integrator subclasses
+    int detectAndResolveCollisions(float dt, float current_time);
+    
+    Integrator* integrator_ = nullptr;
     
 public:
     ReboundCudaSimulation();
@@ -85,13 +95,12 @@ public:
     double getCurrentTime() const { return config_.t; }
     double getTimeStep() const { return config_.dt; }
     
+    // Allow users to swap integrator (must outlive the simulation object)
+    void setIntegrator(Integrator* integrator) { integrator_ = integrator; }
+    
 private:
     // Integration methods
-    void integratorPart1();                          // First drift (D)
-    void integratorPart2();                          // Kick + second drift (KD)
-    void computeForces();
-    void updatePositions();
-    int detectAndResolveCollisions(float dt, float current_time);
+    // (duplicate declaration removed)
 };
 
 #endif // REBOUND_SIMULATION_H 

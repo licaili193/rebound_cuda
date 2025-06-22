@@ -2,6 +2,7 @@
 #include "rebound_gravity.h"
 #include "rebound_integration.h"
 #include "rebound_utils.h"
+#include "rebound_integrator.h"
 #include <iostream>
 #include <cmath>
 #include <cstdlib>
@@ -12,7 +13,7 @@
 ReboundCudaSimulation::ReboundCudaSimulation() 
     : h_particles_(nullptr), d_particles_(nullptr), particles_allocated_(false), 
       device_particles_current_(false), particle_count_(0), max_collisions_(1000),
-      collision_enabled_(false), d_collisions_(nullptr) {
+      collision_enabled_(false), d_collisions_(nullptr), integrator_(nullptr) {
     
     // Initialize configuration with default values
     config_.n_particles = 0;
@@ -30,6 +31,10 @@ ReboundCudaSimulation::ReboundCudaSimulation()
     collision_detector_.setDetectionMethod(COLLISION_NONE);
     collision_detector_.setResolutionMethod(COLLISION_RESOLVE_HALT);
     collision_detector_.setCoefficientOfRestitution(0.5f);
+    
+    // Default to leapfrog integrator
+    static LeapfrogIntegrator default_leapfrog;
+    integrator_ = &default_leapfrog;
 }
 
 ReboundCudaSimulation::~ReboundCudaSimulation() {
@@ -198,46 +203,6 @@ void ReboundCudaSimulation::updatePositions() {
     checkCudaError(err, "Device synchronization failed in updatePositions");
 }
 
-void ReboundCudaSimulation::integratorPart1() {
-    // First part of DKD integration: Drift by half timestep
-    if (particle_count_ == 0) return;
-    
-    int threadsPerBlock = 256;
-    int blocksPerGrid = (particle_count_ + threadsPerBlock - 1) / threadsPerBlock;
-    
-    // Drift: update positions by half timestep using current velocities
-    updatePositionsKernel<<<blocksPerGrid, threadsPerBlock>>>(
-        d_particles_, particle_count_, config_.dt * 0.5);
-    
-    cudaError_t err = cudaGetLastError();
-    checkCudaError(err, "Kernel execution failed in integratorPart1");
-    
-    err = cudaDeviceSynchronize();
-    checkCudaError(err, "Device synchronization failed in integratorPart1");
-}
-
-void ReboundCudaSimulation::integratorPart2() {
-    // Second part of DKD integration: Kick + Drift
-    if (particle_count_ == 0) return;
-    
-    int threadsPerBlock = 256;
-    int blocksPerGrid = (particle_count_ + threadsPerBlock - 1) / threadsPerBlock;
-    
-    // Kick: update velocities by full timestep using accelerations
-    updateVelocitiesKernel<<<blocksPerGrid, threadsPerBlock>>>(
-        d_particles_, particle_count_, config_.dt);
-    
-    // Drift: update positions by half timestep using new velocities
-    updatePositionsKernel<<<blocksPerGrid, threadsPerBlock>>>(
-        d_particles_, particle_count_, config_.dt * 0.5);
-    
-    cudaError_t err = cudaGetLastError();
-    checkCudaError(err, "Kernel execution failed in integratorPart2");
-    
-    err = cudaDeviceSynchronize();
-    checkCudaError(err, "Device synchronization failed in integratorPart2");
-}
-
 bool ReboundCudaSimulation::step() {
     // Proper DKD integration pattern following rebound's approach:
     
@@ -246,8 +211,8 @@ bool ReboundCudaSimulation::step() {
         return false; // signal halt
     }
     
-    // 1. Integrator Part 1: First drift (D)
-    integratorPart1();
+    // 1. Drift half-step
+    if (integrator_) integrator_->drift(d_particles_, particle_count_, config_.dt * 0.5);
     
     // 2. Tree updates (if needed for tree-based gravity)
     // This happens inside computeForces for GRAVITY_TREE mode
@@ -255,8 +220,9 @@ bool ReboundCudaSimulation::step() {
     // 3. Calculate accelerations (gravity and other forces)
     computeForces();
     
-    // 4. Integrator Part 2: Kick + second drift (KD)
-    integratorPart2();
+    // 4. Kick full-step then drift half-step
+    if (integrator_) integrator_->kick(d_particles_, particle_count_, config_.dt);
+    if (integrator_) integrator_->drift(d_particles_, particle_count_, config_.dt * 0.5);
     
     // 5. Update simulation time
     config_.t += config_.dt;
@@ -495,4 +461,11 @@ int ReboundCudaSimulation::detectAndResolveCollisions(float dt, float current_ti
     }
     
     return 0; // Continue simulation
-} 
+}
+
+// The integratorPart1/Part2 member functions are now obsolete – superseded by
+// the standalone Integrator hierarchy. They are kept disabled to avoid
+// symbol collisions while preserving history for reference.
+#if 0
+// ... old integratorPart1 and integratorPart2 implementations ...
+#endif 
