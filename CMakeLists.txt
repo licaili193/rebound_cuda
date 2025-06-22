@@ -34,7 +34,7 @@ set_target_properties(rebound_cuda_lib PROPERTIES
 # Add main examples executable
 add_executable(rebound_examples 
     examples/main.cu
-    examples/planetary_system.cu
+    examples/planetary_system.cpp
     examples/gravity_comparison.cu
 )
 
