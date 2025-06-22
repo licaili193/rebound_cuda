@@ -44,13 +44,6 @@ int main() {
     std::cout << "Initial system:" << std::endl;
     sim.printParticles();
     
-    // Debug: Print particle radii to verify they're set correctly
-    const Particle* particles = sim.getParticles();
-    std::cout << "DEBUG: Particle radii verification:" << std::endl;
-    for (int i = 0; i < sim.getNumParticles(); i++) {
-        std::cout << "  Particle " << i << ": radius=" << particles[i].r << std::endl;
-    }
-    
     double initial_energy = sim.getTotalEnergy();
     std::cout << "Initial energy: " << initial_energy << std::endl;
     

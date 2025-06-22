@@ -86,8 +86,6 @@ void ReboundCudaSimulation::initializeSimulation(int n_particles, double dt, dou
 
 void ReboundCudaSimulation::addParticle(double m, double x, double y, double z, 
                                        double vx, double vy, double vz, double r) {
-    std::cout << "DEBUG: Adding particle " << particle_count_ << " with mass=" << m << ", pos=(" << x << ", " << y << ", " << z << ")" << std::endl;
-    
     if (particle_count_ >= config_.n_particles) {
         std::cerr << "Error: Cannot add more particles than allocated (" << config_.n_particles << ")" << std::endl;
         return;
@@ -105,11 +103,8 @@ void ReboundCudaSimulation::addParticle(double m, double x, double y, double z,
     p.ax = 0.0; p.ay = 0.0; p.az = 0.0;
     p.r = r;
     
-    std::cout << "DEBUG: After setting values: mass=" << p.m << ", pos=(" << p.x << ", " << p.y << ", " << p.z << ")" << std::endl;
-    
     particle_count_++;
     device_particles_current_ = false;  // Device is no longer current after adding particles
-    std::cout << "DEBUG: particle_count now = " << particle_count_ << std::endl;
 }
 
 void ReboundCudaSimulation::setGravityMode(GravityMode mode) {
@@ -124,8 +119,6 @@ void ReboundCudaSimulation::setTreeParameters(double opening_angle, double softe
 void ReboundCudaSimulation::copyParticlesToDevice() {
     if (!particles_allocated_) return;
     
-    std::cout << "DEBUG: Copying " << particle_count_ << " particles to device (config.n_particles=" << config_.n_particles << ")" << std::endl;
-    
     cudaError_t err = cudaMemcpy(d_particles_, h_particles_, 
                                 particle_count_ * sizeof(Particle), cudaMemcpyHostToDevice);
     checkCudaError(err, "Failed to copy particles to device");
@@ -135,8 +128,6 @@ void ReboundCudaSimulation::copyParticlesToDevice() {
 
 void ReboundCudaSimulation::copyParticlesFromDevice() {
     if (!particles_allocated_ || !device_particles_current_) return;
-    
-    std::cout << "DEBUG: Copying " << particle_count_ << " particles from device (config.n_particles=" << config_.n_particles << ")" << std::endl;
     
     cudaError_t err = cudaMemcpy(h_particles_, d_particles_, 
                                 particle_count_ * sizeof(Particle), cudaMemcpyDeviceToHost);
@@ -247,12 +238,12 @@ void ReboundCudaSimulation::integratorPart2() {
     checkCudaError(err, "Device synchronization failed in integratorPart2");
 }
 
-void ReboundCudaSimulation::step() {
+bool ReboundCudaSimulation::step() {
     // Proper DKD integration pattern following rebound's approach:
     
     // Detect and handle collisions before integration
     if (collision_enabled_ && detectAndResolveCollisions(config_.dt, config_.t) == 1) {
-        return; // Halt simulation
+        return false; // signal halt
     }
     
     // 1. Integrator Part 1: First drift (D)
@@ -272,12 +263,14 @@ void ReboundCudaSimulation::step() {
     
     // Detect and handle collisions after integration
     if (collision_enabled_ && detectAndResolveCollisions(config_.dt, config_.t) == 1) {
-        return; // Halt simulation
+        return false;
     }
     
     // 6. Synchronize to ensure all operations are complete
     cudaError_t err = cudaDeviceSynchronize();
     checkCudaError(err, "Device synchronization failed in step");
+
+    return true; // continue
 }
 
 // =============================================================================
@@ -321,6 +314,12 @@ void ReboundCudaSimulation::notifyCollisionDetected(int particle1, int particle2
     }
 }
 
+// Public method to explicitly synchronize host particle array
+void ReboundCudaSimulation::copyParticlesToHost() {
+    copyParticlesFromDevice();
+    device_particles_current_ = false;
+}
+
 // =============================================================================
 // Efficient Integration Method (completely independent of streaming)
 // =============================================================================
@@ -351,7 +350,9 @@ void ReboundCudaSimulation::integrate(double t_end) {
         }
         
         // Execute simulation step (all on GPU)
-        step();
+        if(!step()) {
+            break; // collision halted
+        }
         steps++;
         
         // Restore original timestep
@@ -368,15 +369,8 @@ void ReboundCudaSimulation::integrate(double t_end) {
         }
     }
     
-    // Notify observers that simulation has ended
     notifySimulationEnd(steps);
     
-    // Ensure host-side particle data is up-to-date for any post-integration queries
-    copyParticlesFromDevice();
-
-    // Host is now current representation
-    device_particles_current_ = false;
-
     std::cout << "Integration completed. " << steps << " steps executed." << std::endl;
     std::cout << "Final time: " << config_.t << std::endl;
     std::cout << "Data remains on GPU. Use observer pattern or legacy methods to access." << std::endl;
@@ -462,13 +456,11 @@ void ReboundCudaSimulation::setCollisionDetection(CollisionDetection method) {
     if (collision_enabled_ && !d_collisions_) {
         cudaError_t err = cudaMalloc(&d_collisions_, max_collisions_ * sizeof(Collision));
         checkCudaError(err, "Failed to allocate collision memory");
-        std::cout << "DEBUG: Allocated collision memory for " << max_collisions_ << " collisions" << std::endl;
     }
     
     // Free collision memory if disabled
     if (!collision_enabled_ && d_collisions_) {
         freeCollisionMemory();
-        std::cout << "DEBUG: Freed collision memory" << std::endl;
     }
 }
 
@@ -481,20 +473,13 @@ void ReboundCudaSimulation::setCoefficientOfRestitution(float epsilon) {
 }
 
 int ReboundCudaSimulation::detectAndResolveCollisions(float dt, float current_time) {
-    std::cout << "DEBUG: detectAndResolveCollisions called - collision_enabled_=" << collision_enabled_ << ", d_collisions_=" << (d_collisions_ ? "allocated" : "null") << std::endl;
-    
     if (!collision_enabled_ || !d_collisions_) {
-        std::cout << "DEBUG: Collision detection skipped" << std::endl;
         return 0;
     }
-    
-    std::cout << "DEBUG: Running collision detection..." << std::endl;
     
     // Detect collisions
     int n_collisions = collision_detector_.detectCollisions(
         d_particles_, particle_count_, dt, d_collisions_, max_collisions_);
-    
-    std::cout << "DEBUG: Detected " << n_collisions << " collisions" << std::endl;
     
     if (n_collisions > 0) {
         printf("Detected %d collisions at time %f\n", n_collisions, current_time);

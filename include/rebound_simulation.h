@@ -68,12 +68,15 @@ public:
     void removeObserver(SimulationObserver* observer);
     
     // Simulation execution (completely independent of streaming)
-    void step();
+    bool step();  // returns true if simulation should continue, false if halted
     void integrate(double t_end);
     
     // Legacy methods (for compatibility - efficient access without copying)
     void printParticles();                             // Triggers device copy only when called
     double getTotalEnergy();                           // Triggers device copy only when called
+    
+    // Explicit synchronization utility
+    void copyParticlesToHost();                       // Manually copy device → host
     
     // Getters for direct access (avoid copying)
     const Particle* getParticles() const { return h_particles_; }

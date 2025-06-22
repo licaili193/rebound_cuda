@@ -26,6 +26,8 @@ TEST(Collisions, DirectCollisionDetection) {
     // Integrate past collision time
     sim.integrate(0.5);
     
+    // Copy particle data back to host
+    sim.copyParticlesToHost();
     // Check that collision was detected (simulation should have halted before 0.5)
     double final_time = sim.getCurrentTime();
     ASSERT_LT(final_time, 0.5);  // Should have stopped due to collision
@@ -62,6 +64,8 @@ TEST(Collisions, HardSphereCollision) {
     // Integrate through collision
     sim.integrate(2.0);
     
+    // Sync host data
+    sim.copyParticlesToHost();
     // Check final state
     const Particle* particles = sim.getParticles();
     double final_momentum = m1 * particles[0].vx + m2 * particles[1].vx;
@@ -108,6 +112,8 @@ TEST(Collisions, InelasticCollision) {
     // Integrate through collision
     sim.integrate(2.0);
     
+    // Sync host data
+    sim.copyParticlesToHost();
     // Check final state
     const Particle* particles = sim.getParticles();
     double final_kinetic = 0.5 * m * particles[0].vx * particles[0].vx + 
@@ -160,6 +166,8 @@ TEST(Collisions, MultipleParticleCollisions) {
     // Integrate through collisions
     sim.integrate(1.0);
     
+    // Sync host data
+    sim.copyParticlesToHost();
     // Check conservation
     const Particle* particles = sim.getParticles();
     double final_momentum = 0.0;
@@ -202,6 +210,8 @@ TEST(Collisions, NoFalseCollisions) {
     // Integrate for sufficient time
     sim.integrate(2.0);
     
+    // Sync host data
+    sim.copyParticlesToHost();
     // Should complete without collision detection halting simulation
     double final_time = sim.getCurrentTime();
     ASSERT_NEAR(final_time, 2.0, 1e-10);  // Should integrate to full time
@@ -243,6 +253,8 @@ TEST(Collisions, CollisionWithGravity) {
     // Integrate through collision
     sim.integrate(5.0);
     
+    // Sync host data
+    sim.copyParticlesToHost();
     // Check that system evolved (collision should have occurred)
     const Particle* particles = sim.getParticles();
     double dx = particles[1].x - particles[0].x;

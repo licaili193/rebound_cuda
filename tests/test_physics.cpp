@@ -59,6 +59,7 @@ TEST(Physics, TwoBodyKinematics) {
     // Integrate for 1 time unit
     double t = 1.0;
     sim.integrate(t);
+    sim.copyParticlesToHost();
     
     // Check positions analytically
     double expected_x1 = x1_initial + v1 * t;

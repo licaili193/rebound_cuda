@@ -96,12 +96,12 @@ enum LogLevel {
 
 // Data buffer configuration
 struct BufferConfig {
-    int max_frames;         // Maximum number of simulation frames to buffer
-    int stream_interval;    // For STREAM_PERIODIC mode: stream every N steps
-    bool enable_gpu_logging; // Enable GPU-side logging
-    LogLevel log_level;     // Minimum log level to capture
-    bool async_streaming;   // Enable asynchronous host-side processing
-    int worker_threads;     // Number of worker threads for async processing
+    int max_frames = 1000;         // Maximum number of simulation frames to buffer (sensible default)
+    int stream_interval = 1;       // For STREAM_PERIODIC mode: stream every N steps (default every step)
+    bool enable_gpu_logging = false; // Disable GPU-side logging by default
+    LogLevel log_level = LOG_INFO;   // Default minimum log level
+    bool async_streaming = false;  // Disable asynchronous host-side processing by default
+    int worker_threads = 2;        // Default number of worker threads if async_streaming is enabled
 };
 
 // Simulation frame data (what gets streamed/buffered)
