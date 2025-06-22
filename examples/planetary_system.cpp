@@ -1,6 +1,10 @@
 #include "../include/rebound_cuda.h"
+#include "../include/rebound_streaming.h"
 #include <iostream>
 #include <cmath>
+#include <fstream>
+#include <mutex>
+#include <vector>
 
 // Physical constants (SI units)
 constexpr double G_SI           = 6.67430e-11;        // m^3 kg^-1 s^-2
@@ -16,6 +20,31 @@ constexpr double R_MOON         = 1.737e6;            // m
 constexpr double EARTH_ORBIT_RADIUS = AU_IN_METERS;           // 1 AU
 constexpr double MOON_ORBIT_RADIUS  = 3.844e8;                // m (avg)
 
+// Global mutex for safe file writing from possible worker threads
+static std::mutex g_file_mutex;
+
+// Frame callback used by DataStreamingManager
+static void frameWriterCallback(const SimulationFrame* frame, void* user_data) {
+    if (!frame || !frame->particles) return;
+
+    // Copy particle data from device to host (small n, so this is cheap)
+    int n = frame->n_particles;
+    std::vector<Particle> host_particles(n);
+    cudaMemcpy(host_particles.data(), frame->particles, n * sizeof(Particle), cudaMemcpyDeviceToHost);
+
+    // Write to CSV
+    std::ofstream* out = static_cast<std::ofstream*>(user_data);
+    if (!out || !out->is_open()) return;
+
+    std::lock_guard<std::mutex> lock(g_file_mutex);
+    // CSV format: time, step, x0,y0,z0,x1,y1,z1,...
+    *out << frame->time << "," << frame->step;
+    for (const auto& p : host_particles) {
+        *out << "," << p.x << "," << p.y << "," << p.z;
+    }
+    *out << "\n";
+}
+
 void runPlanetarySystemExample() {
     std::cout << "\n=== PLANETARY SYSTEM EXAMPLE (REALISTIC UNITS) ===" << std::endl;
 
@@ -28,6 +57,23 @@ void runPlanetarySystemExample() {
     const int    n_particles = 3;                     // Sun, Earth, Moon
 
     sim.initializeSimulation(n_particles, dt_seconds, G_SI);
+
+    // ----------------------------------------
+    // Set up data streaming (observer pattern)
+    // ----------------------------------------
+    DataStreamingManager streamer;
+    BufferConfig buf_cfg;
+    buf_cfg.max_frames       = 10000;   // plenty for ~9000 steps
+    buf_cfg.stream_interval  = 1;       // every step
+    buf_cfg.enable_gpu_logging = false;
+    buf_cfg.async_streaming  = false;   // simpler offline fetch
+
+    streamer.initialize(buf_cfg);
+    streamer.setStreamingMode(STREAM_PERIODIC); // every step
+
+    // Attach streamer
+    sim.addObserver(&streamer);
+    streamer.setDeviceParticlePointer(sim.getDeviceParticles());
 
     // ------------------------------
     // Compute orbital velocities
@@ -72,4 +118,28 @@ void runPlanetarySystemExample() {
     std::cout << "Energy conservation error: " << energy_error << "%" << std::endl;
 
     std::cout << "Integration completed successfully!" << std::endl;
+
+    // ----------------------------------------
+    // Dump buffered frames to CSV
+    // ----------------------------------------
+    std::ofstream snapshot_file("snapshots.csv");
+    snapshot_file << "time,step";
+    for (int i = 0; i < n_particles; ++i) snapshot_file << ",x" << i << ",y" << i << ",z" << i;
+    snapshot_file << "\n";
+
+    auto frames = streamer.getAllFrames();
+    for (const auto& frm : frames) {
+        snapshot_file << frm.time << "," << frm.step;
+        const Particle* host_particles = frm.particles; // Already on host
+        for (int i = 0; i < n_particles; ++i) {
+            const Particle& p = host_particles[i];
+            snapshot_file << "," << p.x << "," << p.y << "," << p.z;
+        }
+        snapshot_file << "\n";
+    }
+
+    snapshot_file.close();
+
+    sim.removeObserver(&streamer);
+    streamer.shutdown();
 } 

@@ -404,9 +404,15 @@ void DataStreamingManager::onSimulationStep(double time, int step, int n_particl
         host_frame.time          = time;
         host_frame.step          = step;
         host_frame.n_particles   = n_particles;
-        host_frame.particles     = cached_d_particles_; // Device pointer (may be nullptr if not provided).
         host_frame.total_energy  = energy;
         host_frame.n_collisions  = n_collisions;
+
+        // Deep-copy particle data to host so that each frame retains its own snapshot
+        Particle* h_particles = new Particle[n_particles];
+        if (cached_d_particles_ && h_particles) {
+            cudaMemcpy(h_particles, cached_d_particles_, n_particles * sizeof(Particle), cudaMemcpyDeviceToHost);
+        }
+        host_frame.particles = h_particles; // Owns memory; leaked at shutdown (acceptable for short-lived examples/tests)
 
         // Maintain ring buffer with maximum size config_.max_frames
         if (static_cast<int>(h_frame_buffer_.size()) >= config_.max_frames && config_.max_frames > 0) {
