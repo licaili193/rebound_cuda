@@ -163,8 +163,11 @@ void ReboundCudaSimulation::computeForces() {
 
     switch (config_.gravity_mode) {
         case GRAVITY_BASIC:
-            computeForcesBasicKernel<<<blocksPerGrid, threadsPerBlock>>>(
-                d_particles_, particle_count_, config_.G, config_.softening);
+            {
+                size_t sharedBytes = threadsPerBlock * sizeof(Particle);
+                computeForcesBasicKernel<<<blocksPerGrid, threadsPerBlock, sharedBytes>>>(
+                    d_particles_, particle_count_, config_.G, config_.softening);
+            }
             break;
         case GRAVITY_COMPENSATED:
             computeForcesCompensatedKernel<<<blocksPerGrid, threadsPerBlock>>>(

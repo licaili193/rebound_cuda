@@ -1,40 +1,70 @@
 #include "rebound_gravity.h"
 #include <cmath>
 
-// CUDA kernel for basic gravity calculation (direct summation)
+// -----------------------------------------------------------------------------
+// Optimised basic gravity kernel using shared–memory tiling.
+// Each thread computes acceleration on one particle (i).  A tile of particles
+// is loaded into shared memory so that their positions / masses are reused by
+// every thread in the block; this removes n× global-memory reads.
+// -----------------------------------------------------------------------------
+
+#ifndef BLOCK_SIZE
+#define BLOCK_SIZE 256
+#endif
+
 __global__ void computeForcesBasicKernel(Particle* particles, int n, double G, double softening) {
-    int i = blockDim.x * blockIdx.x + threadIdx.x;
-    
-    if (i < n) {
-        double fx = 0.0, fy = 0.0, fz = 0.0;
-        
-        // Compute force from all other particles
-        for (int j = 0; j < n; j++) {
-            if (i != j) {
-                double dx = particles[j].x - particles[i].x;
-                double dy = particles[j].y - particles[i].y;
-                double dz = particles[j].z - particles[i].z;
-                
-                double r2 = dx*dx + dy*dy + dz*dz + softening*softening;
-                double r = sqrt(r2);
-                
-                // Avoid division by zero
-                if (r > 1e-15) {
-                    double force_magnitude = G * particles[i].m * particles[j].m / r2;
-                    double force_unit = force_magnitude / r;
-                    
-                    fx += force_unit * dx;
-                    fy += force_unit * dy;
-                    fz += force_unit * dz;
-                }
-            }
+    extern __shared__ Particle shParticles[];   // size = BLOCK_SIZE * sizeof(Particle)
+
+    const int tid   = threadIdx.x;
+    const int i     = blockIdx.x * blockDim.x + tid;
+
+    if (i >= n) return;
+
+    // Make a private copy of my particle (to avoid repeated global reads)
+    Particle myP = particles[i];
+
+    double ax = 0.0, ay = 0.0, az = 0.0;
+
+    // Loop over tiles of the particle array
+    for (int tile = 0; tile < n; tile += BLOCK_SIZE) {
+        // Load one particle per thread into shared memory (if within bounds)
+        int idx = tile + tid;
+        if (idx < n) {
+            shParticles[tid] = particles[idx];
         }
-        
-        // Update accelerations (F = ma, so a = F/m)
-        particles[i].ax = fx / particles[i].m;
-        particles[i].ay = fy / particles[i].m;
-        particles[i].az = fz / particles[i].m;
+        __syncthreads();
+
+        // Number of valid particles in this tile
+        int tileCount = min(BLOCK_SIZE, n - tile);
+
+        // Compute interactions with particles in shared memory
+        for (int j = 0; j < tileCount; ++j) {
+            int jGlobal = tile + j;
+            if (jGlobal == i) continue; // skip self-interaction
+
+            const Particle& other = shParticles[j];
+            double dx = other.x - myP.x;
+            double dy = other.y - myP.y;
+            double dz = other.z - myP.z;
+
+            double r2 = dx*dx + dy*dy + dz*dz + softening*softening;
+            double invR  = rsqrt(r2);          // 1 / r
+            double invR3 = invR * invR * invR; // 1 / r^3
+
+            double s = G * other.m * invR3;    // acceleration contribution
+
+            ax += dx * s;
+            ay += dy * s;
+            az += dz * s;
+        }
+
+        __syncthreads(); // ensure all threads done before loading next tile
     }
+
+    // Store accelerations directly (already a = F / m_i)
+    particles[i].ax = ax;
+    particles[i].ay = ay;
+    particles[i].az = az;
 }
 
 // CUDA kernel for compensated gravity calculation (Kahan summation for better precision)
